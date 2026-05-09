@@ -1,4 +1,4 @@
---// FULL RAYFIELD-STYLE AIM ASSIST TRAINER
+--// FULLY FIXED AIM ASSIST TRAINER
 --// Put this LocalScript inside:
 --// StarterPlayer > StarterPlayerScripts
 
@@ -46,30 +46,14 @@ gui.Parent = player:WaitForChild("PlayerGui")
 
 local main = Instance.new("Frame")
 main.Parent = gui
-main.Size = UDim2.new(0, 320, 0, 240)
-main.Position = UDim2.new(0, 20, 0.5, -120)
+main.Size = UDim2.new(0,320,0,240)
+main.Position = UDim2.new(0,20,0.5,-120)
 main.BackgroundColor3 = Color3.fromRGB(22,22,22)
 main.BorderSizePixel = 0
 
 local mainCorner = Instance.new("UICorner")
 mainCorner.CornerRadius = UDim.new(0,12)
 mainCorner.Parent = main
-
-----------------------------------------------------
--- SHADOW
-----------------------------------------------------
-
-local shadow = Instance.new("ImageLabel")
-shadow.Parent = main
-shadow.BackgroundTransparency = 1
-shadow.AnchorPoint = Vector2.new(0.5,0.5)
-shadow.Position = UDim2.new(0.5,0,0.5,0)
-shadow.Size = UDim2.new(1,40,1,40)
-shadow.Image = "rbxassetid://1316045217"
-shadow.ImageTransparency = 0.6
-shadow.ScaleType = Enum.ScaleType.Slice
-shadow.SliceCenter = Rect.new(10,10,118,118)
-shadow.ZIndex = 0
 
 ----------------------------------------------------
 -- TITLE
@@ -98,7 +82,7 @@ divider.BackgroundColor3 = Color3.fromRGB(45,45,45)
 divider.BorderSizePixel = 0
 
 ----------------------------------------------------
--- AIM TOGGLE
+-- AIM ASSIST TOGGLE
 ----------------------------------------------------
 
 local toggleFrame = Instance.new("Frame")
@@ -219,10 +203,31 @@ knobCorner.CornerRadius = UDim.new(1,0)
 knobCorner.Parent = sliderKnob
 
 ----------------------------------------------------
--- TOGGLE FUNCTIONS
+-- REAL ROBLOX FOV
 ----------------------------------------------------
 
-local function animateToggle(button, circle, state)
+local fovCircle = Instance.new("Frame")
+fovCircle.Parent = gui
+fovCircle.Size = UDim2.new(0,FOV_RADIUS * 2,0,FOV_RADIUS * 2)
+fovCircle.AnchorPoint = Vector2.new(0.5,0.5)
+fovCircle.BackgroundTransparency = 0.9
+fovCircle.BackgroundColor3 = Color3.fromRGB(0,170,255)
+fovCircle.BorderSizePixel = 0
+
+local fovCorner = Instance.new("UICorner")
+fovCorner.CornerRadius = UDim.new(1,0)
+fovCorner.Parent = fovCircle
+
+local fovStroke = Instance.new("UIStroke")
+fovStroke.Parent = fovCircle
+fovStroke.Color = Color3.fromRGB(0,170,255)
+fovStroke.Thickness = 1.5
+
+----------------------------------------------------
+-- TOGGLE ANIMATION
+----------------------------------------------------
+
+local function animateToggle(button,circle,state)
 
 	if state then
 
@@ -254,17 +259,21 @@ local function animateToggle(button, circle, state)
 	end
 end
 
+----------------------------------------------------
+-- BUTTON EVENTS
+----------------------------------------------------
+
 toggleFrame.InputBegan:Connect(function(input)
 	if input.UserInputType == Enum.UserInputType.MouseButton1 then
 		AIM_ENABLED = not AIM_ENABLED
-		animateToggle(toggleButton, toggleCircle, AIM_ENABLED)
+		animateToggle(toggleButton,toggleCircle,AIM_ENABLED)
 	end
 end)
 
 shootFrame.InputBegan:Connect(function(input)
 	if input.UserInputType == Enum.UserInputType.MouseButton1 then
 		AUTO_SHOOT = not AUTO_SHOOT
-		animateToggle(shootButton, shootCircle, AUTO_SHOOT)
+		animateToggle(shootButton,shootCircle,AUTO_SHOOT)
 	end
 end)
 
@@ -315,29 +324,15 @@ end)
 -- K KEY GUI TOGGLE
 ----------------------------------------------------
 
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
+UserInputService.InputBegan:Connect(function(input,gp)
 
-	if gameProcessed then
-		return
-	end
+	if gp then return end
 
 	if input.KeyCode == Enum.KeyCode.K then
 		GUI_VISIBLE = not GUI_VISIBLE
 		main.Visible = GUI_VISIBLE
 	end
 end)
-
-----------------------------------------------------
--- FOV CIRCLE
-----------------------------------------------------
-
-local fovCircle = Drawing.new("Circle")
-fovCircle.Color = Color3.fromRGB(0,170,255)
-fovCircle.Thickness = 1.5
-fovCircle.NumSides = 100
-fovCircle.Radius = FOV_RADIUS
-fovCircle.Filled = false
-fovCircle.Visible = true
 
 ----------------------------------------------------
 -- VISIBILITY CHECK
@@ -352,7 +347,7 @@ local function isVisible(part)
 	params.FilterDescendantsInstances = {player.Character}
 	params.FilterType = Enum.RaycastFilterType.Blacklist
 
-	local result = workspace:Raycast(origin, direction, params)
+	local result = workspace:Raycast(origin,direction,params)
 
 	if result then
 		return result.Instance:IsDescendantOf(part.Parent)
@@ -367,10 +362,16 @@ end
 
 local function getClosestTarget()
 
+	local myCharacter = player.Character
+	if not myCharacter then return nil end
+
+	local myRoot = myCharacter:FindFirstChild("HumanoidRootPart")
+	if not myRoot then return nil end
+
 	local closest = nil
 	local shortest = FOV_RADIUS
 
-	for _, plr in pairs(Players:GetPlayers()) do
+	for _,plr in pairs(Players:GetPlayers()) do
 
 		if plr ~= player and plr.Team ~= player.Team then
 
@@ -383,12 +384,11 @@ local function getClosestTarget()
 			and char.Humanoid.Health > 0 then
 
 				local distance =
-					(player.Character.HumanoidRootPart.Position
-					- char.HumanoidRootPart.Position).Magnitude
+					(myRoot.Position - char.HumanoidRootPart.Position).Magnitude
 
 				if distance <= MAX_DISTANCE then
 
-					local pos, visible =
+					local pos,visible =
 						camera:WorldToViewportPoint(char.Head.Position)
 
 					if visible then
@@ -420,9 +420,7 @@ end
 
 local function autoShoot(target)
 
-	if not AUTO_SHOOT then
-		return
-	end
+	if not AUTO_SHOOT then return end
 
 	if tick() - lastShot < SHOOT_DELAY then
 		return
@@ -431,19 +429,13 @@ local function autoShoot(target)
 	lastShot = tick()
 
 	local character = player.Character
-
-	if not character then
-		return
-	end
+	if not character then return end
 
 	local tool = character:FindFirstChildOfClass("Tool")
 
 	if tool then
-
-		-- Tool activation
 		tool:Activate()
 
-		-- Optional remote support
 		local remote = tool:FindFirstChild("ShootRemote")
 
 		if remote and remote:IsA("RemoteEvent") then
@@ -458,7 +450,7 @@ end
 
 RunService.RenderStepped:Connect(function()
 
-	fovCircle.Position = Vector2.new(mouse.X, mouse.Y)
+	fovCircle.Position = UDim2.new(0,mouse.X,0,mouse.Y)
 
 	if not AIM_ENABLED then
 		return
