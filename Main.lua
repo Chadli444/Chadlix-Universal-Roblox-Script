@@ -1,266 +1,485 @@
---[[
-    CHADLIX AUTO SHOOT + AIM ASSIST - FIXED
-    Only shoots when cursor is ON a player
-]]
+--// FULL RAYFIELD-STYLE AIM ASSIST TRAINER
+--// Put this LocalScript inside:
+--// StarterPlayer > StarterPlayerScripts
+
+----------------------------------------------------
+-- SERVICES
+----------------------------------------------------
 
 local Players = game:GetService("Players")
-local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
-local VirtualInputManager = game:GetService("VirtualInputManager")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+
 local player = Players.LocalPlayer
-local camera = workspace.CurrentCamera
 local mouse = player:GetMouse()
+local camera = workspace.CurrentCamera
 
--- Settings
-local AimAssistEnabled = true
-local AutoShootEnabled = true
-local AimStrength = 0.3
-local FOVRadius = 150
+----------------------------------------------------
+-- SETTINGS
+----------------------------------------------------
 
--- Create simple toggle GUI
-local gui = Instance.new("ScreenGui", player:WaitForChild("PlayerGui"))
+local AIM_ENABLED = false
+local GUI_VISIBLE = true
+
+local FOV_RADIUS = 140
+local AIM_SMOOTHNESS = 0.10
+local MAX_DISTANCE = 120
+
+local AUTO_SHOOT = true
+local SHOOT_DELAY = 0.12
+
+local lastShot = 0
+
+----------------------------------------------------
+-- GUI
+----------------------------------------------------
+
+local gui = Instance.new("ScreenGui")
+gui.Name = "AimAssistTrainer"
 gui.ResetOnSpawn = false
+gui.Parent = player:WaitForChild("PlayerGui")
 
-local frame = Instance.new("Frame", gui)
-frame.Size = UDim2.new(0, 200, 0, 100)
-frame.Position = UDim2.new(0, 10, 0, 50)
-frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-frame.BorderSizePixel = 0
-Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 6)
+----------------------------------------------------
+-- MAIN FRAME
+----------------------------------------------------
 
-local title = Instance.new("TextLabel", frame)
-title.Size = UDim2.new(1, 0, 0, 20)
+local main = Instance.new("Frame")
+main.Parent = gui
+main.Size = UDim2.new(0, 320, 0, 240)
+main.Position = UDim2.new(0, 20, 0.5, -120)
+main.BackgroundColor3 = Color3.fromRGB(22,22,22)
+main.BorderSizePixel = 0
+
+local mainCorner = Instance.new("UICorner")
+mainCorner.CornerRadius = UDim.new(0,12)
+mainCorner.Parent = main
+
+----------------------------------------------------
+-- SHADOW
+----------------------------------------------------
+
+local shadow = Instance.new("ImageLabel")
+shadow.Parent = main
+shadow.BackgroundTransparency = 1
+shadow.AnchorPoint = Vector2.new(0.5,0.5)
+shadow.Position = UDim2.new(0.5,0,0.5,0)
+shadow.Size = UDim2.new(1,40,1,40)
+shadow.Image = "rbxassetid://1316045217"
+shadow.ImageTransparency = 0.6
+shadow.ScaleType = Enum.ScaleType.Slice
+shadow.SliceCenter = Rect.new(10,10,118,118)
+shadow.ZIndex = 0
+
+----------------------------------------------------
+-- TITLE
+----------------------------------------------------
+
+local title = Instance.new("TextLabel")
+title.Parent = main
 title.BackgroundTransparency = 1
-title.Text = "AIM + SHOOT"
-title.TextColor3 = Color3.fromRGB(255, 255, 255)
-title.TextSize = 14
+title.Position = UDim2.new(0,20,0,15)
+title.Size = UDim2.new(1,-40,0,30)
 title.Font = Enum.Font.GothamBold
+title.Text = "Aim Assist Trainer"
+title.TextColor3 = Color3.fromRGB(255,255,255)
+title.TextSize = 20
+title.TextXAlignment = Enum.TextXAlignment.Left
 
-local aimToggle = Instance.new("TextButton", frame)
-aimToggle.Size = UDim2.new(0.45, 0, 0, 30)
-aimToggle.Position = UDim2.new(0.05, 0, 0, 25)
-aimToggle.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
-aimToggle.BorderSizePixel = 0
-aimToggle.Text = "AIM: ON"
-aimToggle.TextColor3 = Color3.fromRGB(255, 255, 255)
-aimToggle.TextSize = 11
-aimToggle.Font = Enum.Font.GothamBold
-Instance.new("UICorner", aimToggle).CornerRadius = UDim.new(0, 4)
+----------------------------------------------------
+-- DIVIDER
+----------------------------------------------------
 
-local shootToggle = Instance.new("TextButton", frame)
-shootToggle.Size = UDim2.new(0.45, 0, 0, 30)
-shootToggle.Position = UDim2.new(0.5, 0, 0, 25)
-shootToggle.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
-shootToggle.BorderSizePixel = 0
-shootToggle.Text = "SHOOT: ON"
-shootToggle.TextColor3 = Color3.fromRGB(255, 255, 255)
-shootToggle.TextSize = 11
-shootToggle.Font = Enum.Font.GothamBold
-Instance.new("UICorner", shootToggle).CornerRadius = UDim.new(0, 4)
+local divider = Instance.new("Frame")
+divider.Parent = main
+divider.Position = UDim2.new(0,15,0,50)
+divider.Size = UDim2.new(1,-30,0,1)
+divider.BackgroundColor3 = Color3.fromRGB(45,45,45)
+divider.BorderSizePixel = 0
 
-local status = Instance.new("TextLabel", frame)
-status.Size = UDim2.new(1, 0, 0, 18)
-status.Position = UDim2.new(0, 0, 0, 60)
-status.BackgroundTransparency = 1
-status.Text = "No target"
-status.TextColor3 = Color3.fromRGB(255, 255, 255)
-status.TextSize = 11
-status.Font = Enum.Font.Gotham
+----------------------------------------------------
+-- AIM TOGGLE
+----------------------------------------------------
 
-local targetName = Instance.new("TextLabel", frame)
-targetName.Size = UDim2.new(1, 0, 0, 18)
-targetName.Position = UDim2.new(0, 0, 0, 78)
-targetName.BackgroundTransparency = 1
-targetName.Text = ""
-targetName.TextColor3 = Color3.fromRGB(255, 255, 0)
-targetName.TextSize = 11
-targetName.Font = Enum.Font.Gotham
+local toggleFrame = Instance.new("Frame")
+toggleFrame.Parent = main
+toggleFrame.BackgroundTransparency = 1
+toggleFrame.Position = UDim2.new(0,20,0,70)
+toggleFrame.Size = UDim2.new(1,-40,0,40)
 
--- Toggle functions
-aimToggle.MouseButton1Click:Connect(function()
-    AimAssistEnabled = not AimAssistEnabled
-    aimToggle.Text = AimAssistEnabled and "AIM: ON" or "AIM: OFF"
-    aimToggle.BackgroundColor3 = AimAssistEnabled and Color3.fromRGB(0, 170, 0) or Color3.fromRGB(170, 0, 0)
+local toggleLabel = Instance.new("TextLabel")
+toggleLabel.Parent = toggleFrame
+toggleLabel.BackgroundTransparency = 1
+toggleLabel.Size = UDim2.new(0.7,0,1,0)
+toggleLabel.Font = Enum.Font.Gotham
+toggleLabel.Text = "Aim Assist"
+toggleLabel.TextColor3 = Color3.fromRGB(220,220,220)
+toggleLabel.TextSize = 16
+toggleLabel.TextXAlignment = Enum.TextXAlignment.Left
+
+local toggleButton = Instance.new("Frame")
+toggleButton.Parent = toggleFrame
+toggleButton.AnchorPoint = Vector2.new(1,0.5)
+toggleButton.Position = UDim2.new(1,0,0.5,0)
+toggleButton.Size = UDim2.new(0,50,0,24)
+toggleButton.BackgroundColor3 = Color3.fromRGB(50,50,50)
+toggleButton.BorderSizePixel = 0
+
+local toggleCorner = Instance.new("UICorner")
+toggleCorner.CornerRadius = UDim.new(1,0)
+toggleCorner.Parent = toggleButton
+
+local toggleCircle = Instance.new("Frame")
+toggleCircle.Parent = toggleButton
+toggleCircle.Size = UDim2.new(0,20,0,20)
+toggleCircle.Position = UDim2.new(0,2,0.5,-10)
+toggleCircle.BackgroundColor3 = Color3.fromRGB(255,255,255)
+toggleCircle.BorderSizePixel = 0
+
+local circleCorner = Instance.new("UICorner")
+circleCorner.CornerRadius = UDim.new(1,0)
+circleCorner.Parent = toggleCircle
+
+----------------------------------------------------
+-- AUTO SHOOT TOGGLE
+----------------------------------------------------
+
+local shootFrame = Instance.new("Frame")
+shootFrame.Parent = main
+shootFrame.BackgroundTransparency = 1
+shootFrame.Position = UDim2.new(0,20,0,115)
+shootFrame.Size = UDim2.new(1,-40,0,40)
+
+local shootLabel = Instance.new("TextLabel")
+shootLabel.Parent = shootFrame
+shootLabel.BackgroundTransparency = 1
+shootLabel.Size = UDim2.new(0.7,0,1,0)
+shootLabel.Font = Enum.Font.Gotham
+shootLabel.Text = "Auto Shoot"
+shootLabel.TextColor3 = Color3.fromRGB(220,220,220)
+shootLabel.TextSize = 16
+shootLabel.TextXAlignment = Enum.TextXAlignment.Left
+
+local shootButton = toggleButton:Clone()
+shootButton.Parent = shootFrame
+shootButton.Position = UDim2.new(1,0,0.5,0)
+
+local shootCircle = shootButton:FindFirstChildOfClass("Frame")
+
+----------------------------------------------------
+-- SMOOTHNESS LABEL
+----------------------------------------------------
+
+local smoothLabel = Instance.new("TextLabel")
+smoothLabel.Parent = main
+smoothLabel.BackgroundTransparency = 1
+smoothLabel.Position = UDim2.new(0,20,0,170)
+smoothLabel.Size = UDim2.new(1,-40,0,20)
+smoothLabel.Font = Enum.Font.Gotham
+smoothLabel.Text = "Smoothness: 0.10"
+smoothLabel.TextColor3 = Color3.fromRGB(220,220,220)
+smoothLabel.TextSize = 15
+smoothLabel.TextXAlignment = Enum.TextXAlignment.Left
+
+----------------------------------------------------
+-- SLIDER
+----------------------------------------------------
+
+local sliderBar = Instance.new("Frame")
+sliderBar.Parent = main
+sliderBar.Position = UDim2.new(0,20,0,200)
+sliderBar.Size = UDim2.new(1,-40,0,6)
+sliderBar.BackgroundColor3 = Color3.fromRGB(40,40,40)
+sliderBar.BorderSizePixel = 0
+
+local sliderCorner = Instance.new("UICorner")
+sliderCorner.CornerRadius = UDim.new(1,0)
+sliderCorner.Parent = sliderBar
+
+local sliderFill = Instance.new("Frame")
+sliderFill.Parent = sliderBar
+sliderFill.Size = UDim2.new(0.3,0,1,0)
+sliderFill.BackgroundColor3 = Color3.fromRGB(0,170,255)
+sliderFill.BorderSizePixel = 0
+
+local fillCorner = Instance.new("UICorner")
+fillCorner.CornerRadius = UDim.new(1,0)
+fillCorner.Parent = sliderFill
+
+local sliderKnob = Instance.new("Frame")
+sliderKnob.Parent = sliderBar
+sliderKnob.AnchorPoint = Vector2.new(0.5,0.5)
+sliderKnob.Position = UDim2.new(0.3,0,0.5,0)
+sliderKnob.Size = UDim2.new(0,14,0,14)
+sliderKnob.BackgroundColor3 = Color3.fromRGB(255,255,255)
+sliderKnob.BorderSizePixel = 0
+
+local knobCorner = Instance.new("UICorner")
+knobCorner.CornerRadius = UDim.new(1,0)
+knobCorner.Parent = sliderKnob
+
+----------------------------------------------------
+-- TOGGLE FUNCTIONS
+----------------------------------------------------
+
+local function animateToggle(button, circle, state)
+
+	if state then
+
+		TweenService:Create(
+			circle,
+			TweenInfo.new(0.2),
+			{Position = UDim2.new(1,-22,0.5,-10)}
+		):Play()
+
+		TweenService:Create(
+			button,
+			TweenInfo.new(0.2),
+			{BackgroundColor3 = Color3.fromRGB(0,170,255)}
+		):Play()
+
+	else
+
+		TweenService:Create(
+			circle,
+			TweenInfo.new(0.2),
+			{Position = UDim2.new(0,2,0.5,-10)}
+		):Play()
+
+		TweenService:Create(
+			button,
+			TweenInfo.new(0.2),
+			{BackgroundColor3 = Color3.fromRGB(50,50,50)}
+		):Play()
+	end
+end
+
+toggleFrame.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		AIM_ENABLED = not AIM_ENABLED
+		animateToggle(toggleButton, toggleCircle, AIM_ENABLED)
+	end
 end)
 
-shootToggle.MouseButton1Click:Connect(function()
-    AutoShootEnabled = not AutoShootEnabled
-    shootToggle.Text = AutoShootEnabled and "SHOOT: ON" or "SHOOT: OFF"
-    shootToggle.BackgroundColor3 = AutoShootEnabled and Color3.fromRGB(0, 170, 0) or Color3.fromRGB(170, 0, 0)
+shootFrame.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		AUTO_SHOOT = not AUTO_SHOOT
+		animateToggle(shootButton, shootCircle, AUTO_SHOOT)
+	end
 end)
 
--- Get player under mouse using raycast
-local function getPlayerUnderMouse()
-    local mousePos = UserInputService:GetMouseLocation()
-    local ray = camera:ViewportPointToRay(mousePos.X, mousePos.Y)
-    
-    local params = RaycastParams.new()
-    params.FilterType = Enum.RaycastFilterType.Include
-    params.FilterDescendantsInstances = {}
-    
-    for _, plr in ipairs(Players:GetPlayers()) do
-        if plr ~= player and plr.Character then
-            table.insert(params.FilterDescendantsInstances, plr.Character)
-        end
-    end
-    
-    local result = workspace:Raycast(ray.Origin, ray.Direction * 500, params)
-    
-    if result then
-        for _, plr in ipairs(Players:GetPlayers()) do
-            if plr ~= player and plr.Character and result.Instance:IsDescendantOf(plr.Character) then
-                return plr
-            end
-        end
-    end
-    
-    return nil
+----------------------------------------------------
+-- SLIDER
+----------------------------------------------------
+
+local sliding = false
+
+sliderKnob.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		sliding = true
+	end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		sliding = false
+	end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+
+	if sliding and input.UserInputType == Enum.UserInputType.MouseMovement then
+
+		local percent = math.clamp(
+			(input.Position.X - sliderBar.AbsolutePosition.X)
+			/ sliderBar.AbsoluteSize.X,
+			0,
+			1
+		)
+
+		sliderFill.Size = UDim2.new(percent,0,1,0)
+		sliderKnob.Position = UDim2.new(percent,0,0.5,0)
+
+		AIM_SMOOTHNESS = math.floor(percent * 100) / 100
+
+		if AIM_SMOOTHNESS < 0.02 then
+			AIM_SMOOTHNESS = 0.02
+		end
+
+		smoothLabel.Text =
+			"Smoothness: "..string.format("%.2f", AIM_SMOOTHNESS)
+	end
+end)
+
+----------------------------------------------------
+-- K KEY GUI TOGGLE
+----------------------------------------------------
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+
+	if gameProcessed then
+		return
+	end
+
+	if input.KeyCode == Enum.KeyCode.K then
+		GUI_VISIBLE = not GUI_VISIBLE
+		main.Visible = GUI_VISIBLE
+	end
+end)
+
+----------------------------------------------------
+-- FOV CIRCLE
+----------------------------------------------------
+
+local fovCircle = Drawing.new("Circle")
+fovCircle.Color = Color3.fromRGB(0,170,255)
+fovCircle.Thickness = 1.5
+fovCircle.NumSides = 100
+fovCircle.Radius = FOV_RADIUS
+fovCircle.Filled = false
+fovCircle.Visible = true
+
+----------------------------------------------------
+-- VISIBILITY CHECK
+----------------------------------------------------
+
+local function isVisible(part)
+
+	local origin = camera.CFrame.Position
+	local direction = (part.Position - origin)
+
+	local params = RaycastParams.new()
+	params.FilterDescendantsInstances = {player.Character}
+	params.FilterType = Enum.RaycastFilterType.Blacklist
+
+	local result = workspace:Raycast(origin, direction, params)
+
+	if result then
+		return result.Instance:IsDescendantOf(part.Parent)
+	end
+
+	return false
 end
 
--- Get nearest enemy to crosshair (for aim assist)
-local function getNearestEnemy()
-    local mousePos = UserInputService:GetMouseLocation()
-    local nearest = nil
-    local nearestDist = FOVRadius
-    
-    for _, target in ipairs(Players:GetPlayers()) do
-        if target ~= player and target.Character then
-            local head = target.Character:FindFirstChild("Head")
-            local humanoid = target.Character:FindFirstChild("Humanoid")
-            
-            if head and humanoid and humanoid.Health > 0 then
-                local screenPos, onScreen = camera:WorldToViewportPoint(head.Position)
-                
-                if onScreen then
-                    local dist = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
-                    if dist < nearestDist then
-                        nearestDist = dist
-                        nearest = target
-                    end
-                end
-            end
-        end
-    end
-    
-    return nearest, nearestDist
+----------------------------------------------------
+-- TARGET FINDER
+----------------------------------------------------
+
+local function getClosestTarget()
+
+	local closest = nil
+	local shortest = FOV_RADIUS
+
+	for _, plr in pairs(Players:GetPlayers()) do
+
+		if plr ~= player and plr.Team ~= player.Team then
+
+			local char = plr.Character
+
+			if char
+			and char:FindFirstChild("Humanoid")
+			and char:FindFirstChild("Head")
+			and char:FindFirstChild("HumanoidRootPart")
+			and char.Humanoid.Health > 0 then
+
+				local distance =
+					(player.Character.HumanoidRootPart.Position
+					- char.HumanoidRootPart.Position).Magnitude
+
+				if distance <= MAX_DISTANCE then
+
+					local pos, visible =
+						camera:WorldToViewportPoint(char.Head.Position)
+
+					if visible then
+
+						local dist = (
+							Vector2.new(pos.X,pos.Y)
+							- Vector2.new(mouse.X,mouse.Y)
+						).Magnitude
+
+						if dist < shortest then
+
+							if isVisible(char.Head) then
+								shortest = dist
+								closest = char
+							end
+						end
+					end
+				end
+			end
+		end
+	end
+
+	return closest
 end
 
--- Fire weapon
-local function fireWeapon()
-    local character = player.Character
-    if not character then return end
-    
-    local tool = character:FindFirstChildOfClass("Tool")
-    if not tool then return end
-    
-    -- Method 1: Activate tool
-    pcall(function()
-        tool:Activate()
-    end)
-    
-    -- Method 2: Mouse click
-    pcall(function()
-        mouse1click()
-    end)
-    
-    -- Method 3: VirtualInputManager
-    pcall(function()
-        VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
-        task.wait(0.001)
-        VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
-    end)
-    
-    -- Method 4: RemoteEvents in tool
-    for _, obj in ipairs(tool:GetDescendants()) do
-        pcall(function()
-            if obj:IsA("RemoteEvent") then
-                obj:FireServer()
-            end
-        end)
-    end
+----------------------------------------------------
+-- AUTO SHOOT
+----------------------------------------------------
+
+local function autoShoot(target)
+
+	if not AUTO_SHOOT then
+		return
+	end
+
+	if tick() - lastShot < SHOOT_DELAY then
+		return
+	end
+
+	lastShot = tick()
+
+	local character = player.Character
+
+	if not character then
+		return
+	end
+
+	local tool = character:FindFirstChildOfClass("Tool")
+
+	if tool then
+
+		-- Tool activation
+		tool:Activate()
+
+		-- Optional remote support
+		local remote = tool:FindFirstChild("ShootRemote")
+
+		if remote and remote:IsA("RemoteEvent") then
+			remote:FireServer(target.Head.Position)
+		end
+	end
 end
 
--- Main loop
-local lastFireTime = 0
-local fireCooldown = 0.1 -- seconds between shots
+----------------------------------------------------
+-- MAIN LOOP
+----------------------------------------------------
 
-coroutine.wrap(function()
-    while true do
-        local rayTarget = getPlayerUnderMouse()
-        
-        -- Only proceed if we have a valid target
-        if rayTarget and rayTarget.Character then
-            local humanoid = rayTarget.Character:FindFirstChild("Humanoid")
-            
-            -- Check if target is alive
-            if humanoid and humanoid.Health > 0 then
-                status.Text = "TARGET ACQUIRED"
-                status.TextColor3 = Color3.fromRGB(0, 255, 0)
-                targetName.Text = rayTarget.Name
-                
-                -- Auto Shoot - only fire if cooldown passed
-                if AutoShootEnabled and tick() - lastFireTime >= fireCooldown then
-                    fireWeapon()
-                    lastFireTime = tick()
-                end
-            else
-                status.Text = "Target dead"
-                status.TextColor3 = Color3.fromRGB(255, 100, 100)
-            end
-        else
-            status.Text = "No target"
-            status.TextColor3 = Color3.fromRGB(255, 255, 255)
-            targetName.Text = ""
-            
-            -- Aim Assist still works even if not hovering
-            local aimTarget = getNearestEnemy()
-            if AimAssistEnabled and aimTarget then
-                local head = aimTarget.Character and aimTarget.Character:FindFirstChild("Head")
-                if head then
-                    local mousePos = UserInputService:GetMouseLocation()
-                    local headPos = camera:WorldToViewportPoint(head.Position)
-                    local targetPos = Vector2.new(headPos.X, headPos.Y)
-                    local dir = targetPos - mousePos
-                    local dist = dir.Magnitude
-                    
-                    if dist < FOVRadius then
-                        local strength = AimStrength * (1 - dist / FOVRadius)
-                        local newPos = mousePos + dir * strength
-                        
-                        pcall(function() 
-                            mousemoverel(newPos.X - mousePos.X, newPos.Y - mousePos.Y) 
-                        end)
-                    end
-                end
-            end
-        end
-        
-        -- Also run aim assist when hovering
-        if rayTarget and AimAssistEnabled then
-            local head = rayTarget.Character:FindFirstChild("Head")
-            if head then
-                local mousePos = UserInputService:GetMouseLocation()
-                local headPos = camera:WorldToViewportPoint(head.Position)
-                local targetPos = Vector2.new(headPos.X, headPos.Y)
-                local dir = targetPos - mousePos
-                local dist = dir.Magnitude
-                
-                if dist < FOVRadius then
-                    local strength = AimStrength * (1 - dist / FOVRadius)
-                    local newPos = mousePos + dir * strength
-                    
-                    pcall(function() 
-                        mousemoverel(newPos.X - mousePos.X, newPos.Y - mousePos.Y) 
-                    end)
-                end
-            end
-        end
-        
-        task.wait()
-    end
-end)()
+RunService.RenderStepped:Connect(function()
 
-print("Chadlix Auto Shoot + Aim Assist loaded!")
-print("Auto Shoot only fires when hovering over a player")
-print("Aim Assist: " .. (AimAssistEnabled and "ON" or "OFF"))
-print("Auto Shoot: " .. (AutoShootEnabled and "ON" or "OFF"))
+	fovCircle.Position = Vector2.new(mouse.X, mouse.Y)
+
+	if not AIM_ENABLED then
+		return
+	end
+
+	local target = getClosestTarget()
+
+	if target and target:FindFirstChild("Head") then
+
+		local camCF = camera.CFrame
+
+		local aimCF = CFrame.new(
+			camCF.Position,
+			target.Head.Position
+		)
+
+		camera.CFrame = camCF:Lerp(
+			aimCF,
+			AIM_SMOOTHNESS
+		)
+
+		autoShoot(target)
+	end
+end)
