@@ -1,6 +1,6 @@
 --[[
-    CHADLIX UNIVERSAL HUB - FULL WORKING VERSION
-    Auto clicker + Aim assist + ESP + Fly + Noclip + Inf Jump + FPS/Ping + Stats
+    CHADLIX UNIVERSAL HUB
+    Crosshair-dot detection auto clicker + all features
 ]]
 
 local Players = game:GetService("Players")
@@ -12,7 +12,7 @@ local player = Players.LocalPlayer
 local mouse = player:GetMouse()
 local camera = workspace.CurrentCamera
 
--- Settings (persisted across tab switches)
+-- Settings
 local Settings = {
     AutoClicker = false,
     AimAssist = false,
@@ -27,21 +27,13 @@ local Settings = {
     FlySpeed = 50
 }
 
--- Storage for connections / ESP objects
-local Connections = {
-    autoClicker = nil,
-    aimAssist = nil,
-    fpsPing = nil,
-    fly = nil,
-    noclip = nil,
-    infJump = nil
-}
+local Connections = {}
 local espObjects = {}
 
 -- ==================== GUI SETUP ====================
 local ChadlixHub = Instance.new("ScreenGui")
 ChadlixHub.Name = "ChadlixHub"
-ChadlixHub.ResetOnSpawn = false   -- Stays after death
+ChadlixHub.ResetOnSpawn = false
 ChadlixHub.Parent = player:WaitForChild("PlayerGui")
 
 local MainFrame = Instance.new("Frame")
@@ -61,7 +53,7 @@ TopBar.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
 TopBar.BorderSizePixel = 0
 TopBar.Parent = MainFrame
 Instance.new("UICorner", TopBar).CornerRadius = UDim.new(0, 8)
--- Cover bottom corners of top bar
+
 local TopCover = Instance.new("Frame")
 TopCover.Size = UDim2.new(1, 0, 0, 20)
 TopCover.Position = UDim2.new(0, 0, 0.5, 0)
@@ -132,7 +124,7 @@ ContentFrame.Position = UDim2.new(0, 10, 0, 90)
 ContentFrame.BackgroundTransparency = 1
 ContentFrame.Parent = MainFrame
 
--- Helper to create a toggle button
+-- Helper: Toggle button
 local function makeToggle(label, yPos, default, callback)
     local btn = Instance.new("TextButton")
     btn.Size = UDim2.new(1, -20, 0, 38)
@@ -156,7 +148,7 @@ local function makeToggle(label, yPos, default, callback)
     return btn
 end
 
--- Helper to create a slider
+-- Helper: Slider
 local function makeSlider(label, yPos, min, max, default, callback)
     local frame = Instance.new("Frame")
     frame.Size = UDim2.new(1, -20, 0, 50)
@@ -219,11 +211,10 @@ local function makeSlider(label, yPos, min, max, default, callback)
     end)
 end
 
--- Clear and rebuild content based on current tab
+-- Refresh content per tab
 local contentElements = {}
 
 function refreshContent()
-    -- Delete old buttons/frames in content area
     for _, child in ipairs(ContentFrame:GetChildren()) do
         child:Destroy()
     end
@@ -332,53 +323,109 @@ function stopFPSPing()
     if Connections.fpsPing then Connections.fpsPing:Disconnect() end
 end
 
--- ==================== AUTO CLICKER (the core feature) ====================
-local function getPlayerUnderMouse()
-    local mousePos = UserInputService:GetMouseLocation()
-    local ray = camera:ViewportPointToRay(mousePos.X, mousePos.Y)
+-- ==================== CROSSHAIR DOT DETECTION ====================
+-- Draw a dot at screen center
+local crosshairDot = Instance.new("Frame")
+crosshairDot.Size = UDim2.new(0, 8, 0, 8)
+crosshairDot.Position = UDim2.new(0.5, -4, 0.5, -4)
+crosshairDot.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
+crosshairDot.BorderSizePixel = 0
+crosshairDot.Visible = false  -- Hidden by default, shows when auto clicker is on
+crosshairDot.Parent = ChadlixHub
+Instance.new("UICorner", crosshairDot).CornerRadius = UDim.new(1, 0)
 
-    local params = RaycastParams.new()
-    params.FilterType = Enum.RaycastFilterType.Include
-    params.FilterDescendantsInstances = {}
-
+-- Check if the crosshair dot overlaps with any player on screen
+local function isCrosshairOnPlayer()
+    local screenCenter = camera.ViewportSize / 2
+    
     for _, plr in ipairs(Players:GetPlayers()) do
         if plr ~= player and plr.Character then
-            table.insert(params.FilterDescendantsInstances, plr.Character)
-        end
-    end
-
-    local result = workspace:Raycast(ray.Origin, ray.Direction * 999, params)
-    if result then
-        for _, plr in ipairs(Players:GetPlayers()) do
-            if plr ~= player and plr.Character and result.Instance:IsDescendantOf(plr.Character) then
-                return plr
+            local humanoid = plr.Character:FindFirstChild("Humanoid")
+            if not humanoid or humanoid.Health <= 0 then continue end
+            
+            -- Check multiple body parts
+            local partsToCheck = {"Head", "HumanoidRootPart", "UpperTorso", "LowerTorso", "LeftUpperArm", "RightUpperArm", "LeftUpperLeg", "RightUpperLeg"}
+            
+            for _, partName in ipairs(partsToCheck) do
+                local part = plr.Character:FindFirstChild(partName)
+                if part and part:IsA("BasePart") then
+                    local screenPos, onScreen = camera:WorldToScreenPoint(part.Position)
+                    
+                    if onScreen then
+                        -- Calculate size on screen based on distance
+                        local distanceFromCamera = (camera.CFrame.Position - part.Position).Magnitude
+                        local screenSize = (part.Size.Magnitude * 50) / math.max(distanceFromCamera, 1)
+                        
+                        -- Check if screen center is within the part's screen bounds
+                        local halfSize = Vector2.new(screenSize, screenSize) / 2
+                        local corner1 = Vector2.new(screenPos.X, screenPos.Y) - halfSize
+                        local corner2 = Vector2.new(screenPos.X, screenPos.Y) + halfSize
+                        
+                        if screenCenter.X >= corner1.X and screenCenter.X <= corner2.X and
+                           screenCenter.Y >= corner1.Y and screenCenter.Y <= corner2.Y then
+                            return true, plr
+                        end
+                    end
+                end
+            end
+            
+            -- Also check ALL descendants as a fallback
+            for _, part in ipairs(plr.Character:GetDescendants()) do
+                if part:IsA("BasePart") and part.Transparency < 0.5 then
+                    local screenPos, onScreen = camera:WorldToScreenPoint(part.Position)
+                    if onScreen then
+                        local distanceFromCamera = (camera.CFrame.Position - part.Position).Magnitude
+                        local screenSize = (part.Size.Magnitude * 30) / math.max(distanceFromCamera, 1)
+                        
+                        local halfSize = Vector2.new(screenSize, screenSize) / 2
+                        local corner1 = Vector2.new(screenPos.X, screenPos.Y) - halfSize
+                        local corner2 = Vector2.new(screenPos.X, screenPos.Y) + halfSize
+                        
+                        if screenCenter.X >= corner1.X and screenCenter.X <= corner2.X and
+                           screenCenter.Y >= corner1.Y and screenCenter.Y <= corner2.Y then
+                            return true, plr
+                        end
+                    end
+                end
             end
         end
     end
-    return nil
+    
+    return false, nil
 end
 
+-- ==================== AUTO CLICKER USING CROSSHAIR ====================
 function autoClickerLoop()
     while Settings.AutoClicker do
-        local target = getPlayerUnderMouse()
-        if target and target.Character then
-            -- Left click simulation
+        local onPlayer, targetPlayer = isCrosshairOnPlayer()
+        
+        if onPlayer and targetPlayer then
+            -- Change dot color to red when on target
+            crosshairDot.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+            
+            -- Click!
             mouse1press()
             task.wait(0.005)
             mouse1release()
+        else
+            -- Change dot color to green when no target
+            crosshairDot.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
         end
-        task.wait(0.03) -- click every 0.03 sec when on target
+        
+        task.wait(0.03)
     end
 end
 
 function startAutoClicker()
     if Connections.autoClicker then Connections.autoClicker:Disconnect() end
+    crosshairDot.Visible = true
     Connections.autoClicker = coroutine.wrap(function() autoClickerLoop() end)
     Connections.autoClicker()
 end
 
 function stopAutoClicker()
     if Connections.autoClicker then Connections.autoClicker:Disconnect() end
+    crosshairDot.Visible = false
 end
 
 -- ==================== AIM ASSIST ====================
@@ -417,10 +464,7 @@ function aimAssistLoop()
                 local direction = Vector2.new(headScreenPos.X, headScreenPos.Y) - mousePos
                 local strength = Settings.AimStrength * (1 - dist / Settings.FOVRadius)
                 local newPos = mousePos + direction * strength
-
-                local deltaX = newPos.X - mousePos.X
-                local deltaY = newPos.Y - mousePos.Y
-                mousemoverel(deltaX, deltaY)
+                mousemoverel(newPos.X - mousePos.X, newPos.Y - mousePos.Y)
             end
         end
         task.wait()
@@ -440,7 +484,6 @@ end
 -- ==================== MOVEMENT FEATURES ====================
 function toggleFly()
     if Settings.Fly then
-        -- Clean previous fly
         if Connections.fly then Connections.fly:Disconnect() end
         local char = player.Character or player.CharacterAdded:Wait()
         local hum = char:WaitForChild("Humanoid")
@@ -477,11 +520,7 @@ function toggleFly()
             if UserInputService:IsKeyDown(Enum.KeyCode.D) then move += camera.CFrame.RightVector end
             if UserInputService:IsKeyDown(Enum.KeyCode.Space) then move += Vector3.new(0, 1, 0) end
             if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then move -= Vector3.new(0, 1, 0) end
-            if move.Magnitude > 0 then
-                vel.Velocity = move.Unit * Settings.FlySpeed
-            else
-                vel.Velocity = Vector3.new(0, 0, 0)
-            end
+            if move.Magnitude > 0 then vel.Velocity = move.Unit * Settings.FlySpeed else vel.Velocity = Vector3.new(0, 0, 0) end
         end)
     else
         if Connections.fly then Connections.fly:Disconnect() end
@@ -586,11 +625,8 @@ function updateESP()
     for _, target in ipairs(Players:GetPlayers()) do
         if target ~= player and target.Character then
             local isTeam = target.Team == player.Team and player.Team ~= nil
-            if isTeam and Settings.TeamESP then
-                createESP(target, true)
-            elseif not isTeam and Settings.NormalESP then
-                createESP(target, false)
-            end
+            if isTeam and Settings.TeamESP then createESP(target, true)
+            elseif not isTeam and Settings.NormalESP then createESP(target, false) end
         end
     end
 end
@@ -605,20 +641,14 @@ function startStatsUpdater(statLabels)
                 local deaths = leaderstats:FindFirstChild("Deaths") or leaderstats:FindFirstChild("Wipeouts")
                 local time = leaderstats:FindFirstChild("Time") or leaderstats:FindFirstChild("Playtime")
 
-                if kills and kills:IsA("IntValue") then
-                    statLabels["Kills"].Text = "💀 Kills: " .. kills.Value
-                end
-                if deaths and deaths:IsA("IntValue") then
-                    statLabels["Deaths"].Text = "☠️ Deaths: " .. deaths.Value
-                end
+                if kills and kills:IsA("IntValue") then statLabels["Kills"].Text = "💀 Kills: " .. kills.Value end
+                if deaths and deaths:IsA("IntValue") then statLabels["Deaths"].Text = "☠️ Deaths: " .. deaths.Value end
                 if kills and deaths and kills:IsA("IntValue") and deaths:IsA("IntValue") then
                     local kd = deaths.Value > 0 and math.round(kills.Value / deaths.Value * 100) / 100 or kills.Value
                     statLabels["K/D Ratio"].Text = "📊 K/D Ratio: " .. kd
                 end
                 if time and time:IsA("IntValue") then
-                    local mins = math.floor(time.Value / 60)
-                    local secs = time.Value % 60
-                    statLabels["Time Played"].Text = "⏱️ Time Played: " .. mins .. "m " .. secs .. "s"
+                    statLabels["Time Played"].Text = "⏱️ Time Played: " .. math.floor(time.Value / 60) .. "m " .. time.Value % 60 .. "s"
                 end
             end
             statLabels["Ping"].Text = "📡 Ping: " .. math.floor(player:GetNetworkPing() * 1000) .. "ms"
@@ -627,20 +657,17 @@ function startStatsUpdater(statLabels)
     end)
 end
 
--- ==================== PLAYER CONNECTIONS (ESP) ====================
+-- ==================== PLAYER CONNECTIONS ====================
 for _, target in ipairs(Players:GetPlayers()) do
     if target ~= player then
         target.CharacterAdded:Connect(updateESP)
         target.CharacterRemoving:Connect(function() clearESP(target) end)
     end
 end
-Players.PlayerAdded:Connect(function(target)
-    target.CharacterAdded:Connect(updateESP)
-end)
+Players.PlayerAdded:Connect(function(target) target.CharacterAdded:Connect(updateESP) end)
 Players.PlayerRemoving:Connect(function(target) clearESP(target) end)
 player:GetPropertyChangedSignal("Team"):Connect(updateESP)
 
--- Respawn handling (re-enable fly if it was active)
 player.CharacterAdded:Connect(function()
     if Settings.Fly then
         task.wait(0.2)
@@ -650,10 +677,9 @@ player.CharacterAdded:Connect(function()
     end
 end)
 
--- ==================== GUI INTERACTIONS ====================
+-- ==================== GUI CONTROLS ====================
 CloseButton.MouseButton1Click:Connect(function() ChadlixHub:Destroy() end)
 
--- Toggle GUI with 'N'
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
     if input.KeyCode == Enum.KeyCode.N then
@@ -661,6 +687,6 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
     end
 end)
 
--- Start initial content and ESP
+-- ==================== STARTUP ====================
 refreshContent()
 updateESP()
